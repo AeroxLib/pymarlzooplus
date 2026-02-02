@@ -7,6 +7,7 @@ from .rnn_agent_cds import RNNAgentCDS
 from .rnn_maven_agent import RNNAgentMaven
 from .commformer_agent import CommFormerAgent
 from .cmt_agent import CMTAgent #添加注册
+from .tgcnet_agent import TGCNet
 
 REGISTRY = {
     "rnn": RNNAgent,
@@ -18,6 +19,7 @@ REGISTRY = {
     "rnn_maven": RNNAgentMaven,
     "commformer_agent": CommFormerAgent,
     "cmt_agent": CMTAgent,
+    "tgcnet": TGCNet,
 }
 
 

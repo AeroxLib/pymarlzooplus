@@ -12,6 +12,7 @@ from .maser_q_learner import  MASERQLearner
 from .maven_learner import MavenLearner
 from .commformer_learner import CommFormerLearner
 from .cmt_learner import CMTLearner
+from .tgc_learner import TGCLearner
 
 REGISTRY = {
     "q_learner": QLearner,
@@ -28,4 +29,5 @@ REGISTRY = {
     "maven_learner": MavenLearner,
     "commformer_learner": CommFormerLearner,
     "cmt_learner": CMTLearner,
+    "tgc_learner": TGCLearner,
 }
