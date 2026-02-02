@@ -5,7 +5,14 @@
 # @Software: PyCharm
 # @mail    : zhangzh.grey@gmail.com
 import torch
-import torch_scatter
+
+# 尝试导入 torch_scatter，如果失败则使用替代实现
+try:
+    import torch_scatter
+    HAS_TORCH_SCATTER = True
+except ImportError:
+    HAS_TORCH_SCATTER = False
+    print("Warning: torch_scatter not available, using fallback implementation")
 
 
 def transpose_input(x, num_heads):
@@ -45,13 +52,39 @@ def normalization(adjacency):
 
 
 def global_avg_pool(x, graph_indicator):
-    num = graph_indicator.max().item() + 1
-    return torch_scatter.scatter_mean(x, graph_indicator, dim=0, dim_size=num)
+    """全局平均池化"""
+    if HAS_TORCH_SCATTER:
+        num = graph_indicator.max().item() + 1
+        return torch_scatter.scatter_mean(x, graph_indicator, dim=0, dim_size=num)
+    else:
+        # 替代实现
+        num = graph_indicator.max().item() + 1
+        result = []
+        for i in range(num):
+            mask = (graph_indicator == i)
+            if mask.any():
+                result.append(x[mask].mean(dim=0))
+            else:
+                result.append(torch.zeros_like(x[0]))
+        return torch.stack(result)
 
 
 def global_max_pool(x, graph_indicator):
-    num = graph_indicator.max().item() + 1
-    return torch_scatter.scatter_max(x, graph_indicator, dim=0, dim_size=num)[0]
+    """全局最大池化"""
+    if HAS_TORCH_SCATTER:
+        num = graph_indicator.max().item() + 1
+        return torch_scatter.scatter_max(x, graph_indicator, dim=0, dim_size=num)[0]
+    else:
+        # 替代实现
+        num = graph_indicator.max().item() + 1
+        result = []
+        for i in range(num):
+            mask = (graph_indicator == i)
+            if mask.any():
+                result.append(x[mask].max(dim=0)[0])
+            else:
+                result.append(torch.zeros_like(x[0]))
+        return torch.stack(result)
 
 
 def corrupt(x, amount):

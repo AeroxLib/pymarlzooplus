@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 import numpy as np
-from modules.layers.utils import normalization
-from modules.layers.sag_pool import SAGPool
+from pymarlzooplus.modules.layers.utils import normalization
+from pymarlzooplus.modules.layers.sag_pool import SAGPool
 
 
 class GraphCoarsening(nn.Module):
@@ -17,7 +17,7 @@ class GraphCoarsening(nn.Module):
         super(GraphCoarsening, self).__init__()
         self.args = args
         self.n_agents = args.n_agents
-        self.input_dim = int(np.prod(args.obs_shape))
+        self.input_dim = int(np.prod(getattr(args, 'obs_shape', getattr(args, 'unit_dim', 64))))
         self.coarsen = SAGPool(self.input_dim, args.coarsening_embed_dim)
         self.embed_dim = args.mixing_embed_dim
         if getattr(args, "hypernet_layers", 1) == 1:

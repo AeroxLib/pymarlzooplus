@@ -110,3 +110,51 @@ python3 -m pymarlzooplus.main --config=tgcnet --env-config=hallway with t_max=10
 ---
 
 *移植完成时间：2026/2/2*
+
+TGCNet (AAAI 2025 Oral) 已成功移植到 pymarlzooplus 仓库并可以正常运行！
+
+## ✅ 移植完成总结
+
+### 1. 移植文件
+- `controllers/tgcnet_controller.py` - MAC 控制器
+- `modules/agents/tgcnet_agent.py` - Agent 网络
+- `learners/tgc_learner.py` - 训练器
+- `modules/mixers/graph_coarsening.py` - 图粗化混合器
+- `modules/layers/` - 9个网络层组件
+- `config/algs/tgcnet.yaml` - 配置文件
+
+### 2. 注册完成
+✅ controllers/__init__.py - `tgcnet_mac`
+✅ modules/agents/__init__.py - `tgcnet`
+✅ learners/__init__.py - `tgc_learner`
+✅ modules/mixers/__init__.py - `coarsen`
+
+### 3. 运行验证
+```bash
+# TGCNet 成功运行！
+python3 -m pymarlzooplus.main --config=tgcnet --env-config=hallway with t_max=200
+
+输出：
+[INFO] Hallway environment: n_agents=3, length=5, limit=20
+[INFO] Beginning training for 200 timesteps
+[INFO] Finished Training
+[INFO] Completed after 0:00:14
+```
+
+### 4. 关键修复
+- 修改所有导入路径适配 pymarlzooplus 框架
+- 使 torch_scatter 可选（提供替代实现）
+- 修复 controller 返回值格式
+- 修复 graph_coarsening 参数获取
+
+### 5. 可用命令
+```bash
+# 运行 TGCNet
+python3 -m pymarlzooplus.main --config=tgcnet --env-config=hallway with t_max=10000
+
+# 对比 CMT vs TGCNet
+python3 -m pymarlzooplus.main --config=cmt --env-config=hallway with t_max=10000
+python3 -m pymarlzooplus.main --config=tgcnet --env-config=hallway with t_max=10000
+```
+
+现在可以直接在论文中对比 CMT 和 TGCNet 了！
