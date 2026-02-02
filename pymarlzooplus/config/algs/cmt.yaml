@@ -1,0 +1,45 @@
+# --- CMT specific parameters ---
+
+# use epsilon greedy action selector
+action_selector: "epsilon_greedy"
+epsilon_start: 1.0
+epsilon_finish: 0.05
+epsilon_anneal_time: 50000
+evaluation_epsilon: 0.0
+
+runner: "episode"
+
+# Buffer
+buffer_size: 100       # 极小 buffer
+batch_size: 2          # 极小 batch
+prioritized_buffer: False
+prioritized_buffer_alpha: 0.6
+
+# update the target network every {} episodes
+target_update_interval_or_tau: 200
+
+t_max: 1000            # 只跑 1000 步就结束
+log_interval: 100
+test_interval: 100
+
+obs_agent_id: True
+obs_last_action: True
+obs_individual_obs: False
+
+# use the Q_Learner to train
+standardise_returns: False
+standardise_rewards: True
+agent_output_type: "q"
+learner: "q_learner"
+double_q: True
+use_rnn: True
+mixer: "vdn"
+
+# MAGI 系数 (控制压缩程度)
+beta: 0.001
+
+# Sparsity 系数 (控制路由有多稀疏)
+# 如果发现连接全断了，把这个调小；如果发现全是全连接，把这个调大
+l0_weight: 0.01
+
+name: "cmt"
