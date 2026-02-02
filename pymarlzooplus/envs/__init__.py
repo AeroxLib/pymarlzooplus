@@ -35,7 +35,7 @@ except ImportError:
 # 确保 src/envs/starcraft2.py 存在
 # ====================================================
 try:
-    from .starcraft2 import StarCraft2Env
+    from .starcraft2 import SC2 as StarCraft2Env
 except ImportError:
     # 如果没这个文件，可能是仓库精简掉了，通常需要手动放进去
     print("Warning: StarCraft2Env not found. Make sure starcraft2.py is in src/envs/")
