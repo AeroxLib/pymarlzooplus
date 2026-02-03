@@ -2,6 +2,7 @@
 """
 CMT Learner - Complete Implementation with All Optimizations
 包含：QMIX + MOA Loss + AMP + 向量化优化
+修复：Target network loss accumulation, FP16 safety
 """
 
 import copy
@@ -112,18 +113,27 @@ class CMTLearner:
             # Q-learning loss
             chosen_action_qvals = th.gather(mac_out[:, :-1], dim=3, index=actions).squeeze(3)
 
-            # Target Q-values
+            # [修复1] Target Q-values - 重置target_mac的loss防止累积
             target_mac_out = []
             self.target_mac.init_hidden(batch.batch_size)
+            
+            # 显式重置target_mac的loss属性，防止显存泄漏
+            if hasattr(self.target_mac.agent, 'moa_loss'):
+                self.target_mac.agent.moa_loss = th.tensor(0.0)
+            if hasattr(self.target_mac.agent, 'sparsity_loss'):
+                self.target_mac.agent.sparsity_loss = th.tensor(0.0)
+            if hasattr(self.target_mac.agent, 'kl_loss'):
+                self.target_mac.agent.kl_loss = th.tensor(0.0)
+            
             for t in range(batch.max_seq_length):
                 target_agent_outs = self.target_mac.agent.forward(
                     self.target_mac._build_inputs(batch, t),
                     self.target_mac.hidden_states,
-                    training=False
+                    training=False  # 确保training=False跳过MOA计算
                 )
                 self.target_mac.hidden_states = target_agent_outs[1]
                 target_mac_out.append(target_agent_outs[0])
-
+            
             target_mac_out = th.stack(target_mac_out[1:], dim=1)
             target_mac_out[avail_actions[:, 1:] == 0] = -9999999
 
@@ -162,8 +172,12 @@ class CMTLearner:
             moa_weight = getattr(self.args, "moa_weight", 0.1)
             loss += moa_weight * (total_moa_loss / batch.max_seq_length)
 
-            # 3. Sparsity Loss (L0正则)
+            # 3. Sparsity Loss (L0正则) - 带warm-up调度
             l0_weight = getattr(self.args, "l0_weight", 0.01)
+            # [修复2] Warm-up: 训练初期降低l0_weight，让网络先充分连接
+            warmup_steps = 50000  # 前50000步warmup
+            if self.training_steps < warmup_steps:
+                l0_weight = l0_weight * (self.training_steps / warmup_steps)
             loss += l0_weight * (total_sparsity_loss / batch.max_seq_length)
 
             # 4. MAGI KL Loss (信息瓶颈)

@@ -93,7 +93,9 @@ class HybridRouting(nn.Module):
         raw_scores = self.score_net(pair_feat).squeeze(-1)
         
         # 3. 混合：Hard-Concrete掩码 + 内容打分
-        masked_scores = raw_scores + (1 - z_batch) * -1e9
+        # [修复3] 使用更安全的mask值，防止FP16溢出
+        # -1e9 在 FP16 下可能溢出为 -inf，改用 -1e4
+        masked_scores = raw_scores + (1 - z_batch) * -1e4
         
         # 4. Top-K选择
         _, topk_indices = torch.topk(masked_scores, k=self.k, dim=-1)
