@@ -4,36 +4,48 @@
 action_selector: "epsilon_greedy"
 epsilon_start: 1.0
 epsilon_finish: 0.05
-epsilon_anneal_time: 50000
+epsilon_anneal_time: 100000
 evaluation_epsilon: 0.0
 
 runner: "episode"
 
-# Buffer
-buffer_size: 100       # 极小 buffer
-batch_size: 2          # 极小 batch
+# Buffer (参考 TGCNet)
+buffer_size: 5000
+batch_size: 32
 prioritized_buffer: False
 prioritized_buffer_alpha: 0.6
 
 # update the target network every {} episodes
 target_update_interval_or_tau: 200
 
-t_max: 1000            # 只跑 1000 步就结束
-log_interval: 100
-test_interval: 100
+# 参考 TGCNet 设置
+t_max: 2050000
+learner_log_interval: 10000
+log_interval: 10000
+runner_log_interval: 10000
+test_interval: 10000
+test_nepisode: 32
 
 obs_agent_id: True
 obs_last_action: True
 obs_individual_obs: False
 
-# use the Q_Learner to train
+# use the CMT_Learner to train (修正：原来是 q_learner)
 standardise_returns: False
 standardise_rewards: True
 agent_output_type: "q"
-learner: "q_learner"
+learner: "cmt_learner"          # ✅ 修正：使用 cmt_learner 而不是 q_learner
+agent: "cmt"                   # ✅ 新增：使用 cmt agent 而不是 rnn
+mac: "cmt_mac"                 # ✅ 新增：使用 cmt_mac 而不是 basic_mac
 double_q: True
 use_rnn: True
-mixer: "vdn"
+mixer: "qmix"
+
+# CMT 特有参数
+k_budget: 2                     # ✅ 新增：HybridRouting 的 Top-K 邻居数
+lambda_c: 0.1                   # ✅ 新增：因果奖励权重
+hidden_dim: 128                 # ✅ 新增：隐藏层维度 (参考 TGCNet 用 128)
+moa_weight: 0.1                 # ✅ 新增：MOA loss 权重
 
 # MAGI 系数 (控制压缩程度)
 beta: 0.001

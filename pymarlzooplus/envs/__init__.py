@@ -1,7 +1,8 @@
 # Needed for the imports
 REGISTRY_availability = [
-    "sc2",          # <--- 新增
-    "hallway",      # <--- 新增
+    "sc2",
+    "hallway",
+    "hallway_join1",  # <--- 新增: Join1Env环境
     "gymma",
     "pettingzoo",
     "overcooked",
@@ -22,7 +23,6 @@ from pymarlzooplus.envs.boxpushing_wrapper import _BoxPushingWrapper  # noqa: E4
 
 # ====================================================
 # [新增 1] 导入 Hallway (自定义环境)
-# 确保你已经创建了 src/envs/hallway.py
 # ====================================================
 try:
     from .hallway import HallwayEnv
@@ -31,13 +31,20 @@ except ImportError:
     HallwayEnv = None
 
 # ====================================================
-# [新增 2] 导入 StarCraft2 (SMAC)
-# 确保 src/envs/starcraft2.py 存在
+# [新增 2] 导入 Join1Env (自定义环境)
+# ====================================================
+try:
+    from .hallway_join1 import Join1Env
+except ImportError:
+    print("Warning: Join1Env not found in envs/hallway_join1.py. Skipping.")
+    Join1Env = None
+
+# ====================================================
+# [新增 3] 导入 StarCraft2 (SMAC)
 # ====================================================
 try:
     from .starcraft2 import SC2 as StarCraft2Env
 except ImportError:
-    # 如果没这个文件，可能是仓库精简掉了，通常需要手动放进去
     print("Warning: StarCraft2Env not found. Make sure starcraft2.py is in src/envs/")
     StarCraft2Env = None
 
@@ -62,6 +69,7 @@ REGISTRY = {
     "boxpushing": partial(env_fn, env=_BoxPushingWrapper),
     
     # [新增注册]
-    "sc2": partial(env_fn, env=StarCraft2Env), 
+    "sc2": partial(env_fn, env=StarCraft2Env),
     "hallway": partial(env_fn, env=HallwayEnv),
+    "hallway_join1": partial(env_fn, env=Join1Env),  # <--- 新增
 }
