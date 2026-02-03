@@ -158,3 +158,42 @@ python3 -m pymarlzooplus.main --config=tgcnet --env-config=hallway with t_max=10
 ```
 
 现在可以直接在论文中对比 CMT 和 TGCNet 了！
+
+
+训练命令已准备好！
+
+## CMT 算法训练
+```bash
+nohup python3 -m pymarlzooplus.main --config=cmt \
+  --env-config=hallway_join1 with \
+  t_max=1000000 test_interval=999999999 \
+  save_model=True save_model_interval=1000000 \
+  use_cuda=True use_tensorboard=True \
+  label="CMT_hallway" seed=42 \
+  > cmt_train.log 2>&1 &
+```
+
+## QMIX 算法训练  
+```bash
+nohup python3 -m pymarlzooplus.main --config=qmix \
+  --env-config=hallway_join1 with \
+  t_max=1000000 test_interval=999999999 \
+  save_model=True save_model_interval=1000000 \
+  use_cuda=True use_tensorboard=True \
+  label="QMIX_hallway" seed=42 \
+  > qmix_train.log 2>&1 &
+```
+
+## 参数说明
+- t_max=1000000: 训练100万步
+- test_interval=999999999: 关闭测试
+- save_model=True: 启用保存
+- save_model_interval=1000000: 只保存最终模型
+
+## 查看进度
+```bash
+tail -f cmt_train.log
+tail -f qmix_train.log
+```
+
+预计每个算法约8小时，明天早上完成！

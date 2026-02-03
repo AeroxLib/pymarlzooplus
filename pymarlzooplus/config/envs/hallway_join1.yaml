@@ -1,0 +1,21 @@
+env: hallway_join1
+
+env_args:
+  key: "hallway_join1"
+  n_agents: 3
+  state_numbers: [4, 6, 10]
+  reward_win: 10
+  obs_last_action: False
+  state_last_action: False
+  print_rew: False
+  is_print: False
+  print_steps: 1000
+
+# 参考 TGCNet 设置
+learner_log_interval: 100000
+log_interval: 100000
+runner_log_interval: 100000
+t_max: 2050000
+test_interval: 10000
+test_nepisode: 100
+test_greedy: True
