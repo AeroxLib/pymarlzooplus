@@ -231,6 +231,10 @@ class CMTAgent(nn.Module):
         mask, z = self.routing(h_view, training=training)
         comm_feat = self.comm(h_view, mask)  # [B, N, D]
         
+        # [方案A] 残差连接：GAT输出 + 原始GRU特征
+        # 防止GAT震荡，保留原始信息
+        comm_feat = comm_feat + h_view  # 残差连接！
+        
         # MAGI信息瓶颈
         mu = self.ib_mu(comm_feat)
         std = F.softplus(self.ib_std(comm_feat)) + 1e-6
