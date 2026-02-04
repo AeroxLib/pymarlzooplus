@@ -44,6 +44,9 @@ class CMTMAC(BasicMAC):
             next_actions=next_actions,
             training=training
         )
+        
+        # reshape: [B*N, n_actions] -> [B, N, n_actions]
+        agent_outs = agent_outs.view(ep_batch.batch_size, self.n_agents, -1)
 
         return agent_outs
 
@@ -64,4 +67,10 @@ class CMTMAC(BasicMAC):
             test_mode=test_mode
         )
 
-        return chosen_actions
+        return chosen_actions, {}
+
+    def init_hidden(self, batch_size):
+        """
+        初始化隐藏状态 - CMT Agent 使用 RNN
+        """
+        self.hidden_states = self.agent.init_hidden().unsqueeze(0).expand(batch_size, self.n_agents, -1)

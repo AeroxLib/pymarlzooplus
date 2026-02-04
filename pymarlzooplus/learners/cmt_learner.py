@@ -88,17 +88,17 @@ class CMTLearner:
         with autocast(enabled=self.args.use_cuda):
             for t in range(batch.max_seq_length):
                 # 🔥 关键：传递actions给Agent用于MOA训练
-                agent_outs = self.mac.agent.forward(
-                    self.mac._build_inputs(batch, t),
-                    self.mac.hidden_states,
+                # 使用 self.mac.forward() 确保输出维度是 [B, N, n_actions]
+                agent_outs = self.mac.forward(
+                    batch,
+                    t,
                     actions=batch["actions"][:, t:t+1],  # 当前动作
                     next_actions=batch["actions"][:, t+1:t+2] if t < batch.max_seq_length - 1 else None,
                     training=True
                 )
                 
-                # 更新hidden states
-                self.mac.hidden_states = agent_outs[1]
-                mac_out.append(agent_outs[0])
+                # agent_outs: [B, N, n_actions]
+                mac_out.append(agent_outs)
                 
                 # 收集各种loss
                 if hasattr(self.mac.agent, "moa_loss"):
@@ -126,13 +126,13 @@ class CMTLearner:
                 self.target_mac.agent.kl_loss = th.tensor(0.0)
             
             for t in range(batch.max_seq_length):
-                target_agent_outs = self.target_mac.agent.forward(
-                    self.target_mac._build_inputs(batch, t),
-                    self.target_mac.hidden_states,
+                # 使用 target_mac.forward() 确保维度正确
+                target_agent_outs = self.target_mac.forward(
+                    batch,
+                    t,
                     training=False  # 确保training=False跳过MOA计算
                 )
-                self.target_mac.hidden_states = target_agent_outs[1]
-                target_mac_out.append(target_agent_outs[0])
+                target_mac_out.append(target_agent_outs)
             
             target_mac_out = th.stack(target_mac_out[1:], dim=1)
             target_mac_out[avail_actions[:, 1:] == 0] = -9999999

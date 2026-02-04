@@ -18,7 +18,7 @@ REGISTRY = {
     "rnn_cds": RNNAgentCDS,
     "rnn_maven": RNNAgentMaven,
     "commformer_agent": CommFormerAgent,
-    "cmt_agent": CMTAgent,
+    "cmt": CMTAgent,
     "tgcnet": TGCNet,
 }
 

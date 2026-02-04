@@ -40,18 +40,23 @@ mac: "cmt_mac"                 # ✅ 新增：使用 cmt_mac 而不是 basic_mac
 double_q: True
 use_rnn: True
 mixer: "qmix"
+mixing_embed_dim: 32
+hypernet_layers: 2
+hypernet_embed: 64
 
 # CMT 特有参数
 k_budget: 2                     # ✅ 新增：HybridRouting 的 Top-K 邻居数
 lambda_c: 0.1                   # ✅ 新增：因果奖励权重
 hidden_dim: 128                 # ✅ 新增：隐藏层维度 (参考 TGCNet 用 128)
-moa_weight: 0.1                 # ✅ 新增：MOA loss 权重
+
+# [Baseline 实验] 关闭所有辅助 Loss，验证 QMIX 骨干能否学会
+moa_weight: 0.0                 # 关闭 MOA loss
 
 # MAGI 系数 (控制压缩程度)
-beta: 0.001
+beta: 0.0                       # 关闭 KL loss
 
 # Sparsity 系数 (控制路由有多稀疏)
 # 如果发现连接全断了，把这个调小；如果发现全是全连接，把这个调大
-l0_weight: 0.01
+l0_weight: 0.0                  # 关闭稀疏 loss
 
 name: "cmt"
