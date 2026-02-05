@@ -138,7 +138,8 @@ class MaskedGAT(nn.Module):
         
         # 2. 应用 Mask (只关注 Routing 选择的邻居)
         # mask 为 0 的地方填负无穷，softmax 后变为 0
-        scores = scores.masked_fill(mask == 0, -1e9)
+        # [修复] FP16安全：-1e9会溢出，改用-1e4
+        scores = scores.masked_fill(mask == 0, -1e4)
         
         # 3. 归一化权重
         attn_weights = F.softmax(scores, dim=-1)  # [B, N, N]
@@ -283,11 +284,6 @@ class CMTAgent(nn.Module):
             message = dist.rsample()  # 初始 ≈ 0 + 0.006 * noise ≈ 0
         else:
             message = mu
-        
-        # 残差连接
-        # 初始状态：0 + h_view = h_view (纯 GRU) -> 完美起步！
-        # 训练后期：Message + h_view -> 爆发！
-        message = message + h_view
         
         # KL loss
         kl = torch.distributions.kl_divergence(
