@@ -110,16 +110,24 @@ class HybridRouting(nn.Module):
 
 
 # ==========================================
-# 3. Masked GAT
+# 3. Masked GAT (with Zero-Initialized Output)
 # ==========================================
 class MaskedGAT(nn.Module):
     def __init__(self, hidden_dim):
         super(MaskedGAT, self).__init__()
         self.head = nn.Linear(hidden_dim, hidden_dim)
+        
+        # 【关键】零初始化的输出投影层
+        # 这样初始时 GAT 输出 ≈ 0，残差连接等价于纯 GRU
+        # 避免 50 万步的"抗噪期"
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim)
+        nn.init.zeros_(self.out_proj.weight)
+        nn.init.zeros_(self.out_proj.bias)
 
     def forward(self, h, mask):
         weights = F.softmax(self.head(h), dim=-1)
         out = torch.matmul(mask, h)
+        out = self.out_proj(out)  # 零初始化投影
         return out
 
 
@@ -228,14 +236,12 @@ class CMTAgent(nn.Module):
         # ====================
         # Routing & Communication (使用原始h，带梯度)
         # ====================
+        # Routing & Communication (使用原始h，带梯度)
+        # ====================
         mask, z = self.routing(h_view, training=training)
         comm_feat = self.comm(h_view, mask)  # [B, N, D]
         
-        # [方案A] 残差连接：GAT输出 + 原始GRU特征
-        # 防止GAT震荡，保留原始信息
-        comm_feat = comm_feat + h_view  # 残差连接！
-        
-        # MAGI信息瓶颈
+        # MAGI信息瓶颈 (必须先压缩，不能偷懒！)
         mu = self.ib_mu(comm_feat)
         std = F.softplus(self.ib_std(comm_feat)) + 1e-6
         dist = torch.distributions.Normal(mu, std)
@@ -244,6 +250,12 @@ class CMTAgent(nn.Module):
             message = dist.rsample()
         else:
             message = mu
+        
+        # [方案B] MAGI后加残差 + 零初始化
+        # 关键：GAT必须先学会压缩有效信息，不能靠输出0偷懒
+        # 初始时 message≈0，+ h_view 等价于纯GRU，快速起步
+        # 后期 message 学习通信信息，与 h_view 融合，爆发力更强
+        message = message + h_view  # 残差在MAGI后！
         
         # KL loss
         kl = torch.distributions.kl_divergence(
