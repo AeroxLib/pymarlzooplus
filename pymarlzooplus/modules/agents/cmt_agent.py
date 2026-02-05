@@ -119,9 +119,9 @@ class MaskedGAT(nn.Module):
         self.W_q = nn.Linear(hidden_dim, hidden_dim)
         self.W_k = nn.Linear(hidden_dim, hidden_dim)
         
-        # 零初始化的输出投影层
+        # 【修复2】Small-Init：给梯度留缝，不堵死
         self.out_proj = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.zeros_(self.out_proj.weight)
+        nn.init.xavier_uniform_(self.out_proj.weight, gain=0.01)
         nn.init.zeros_(self.out_proj.bias)
 
     def forward(self, h, mask):
@@ -138,7 +138,6 @@ class MaskedGAT(nn.Module):
         
         # 2. 应用 Mask (只关注 Routing 选择的邻居)
         # mask 为 0 的地方填负无穷，softmax 后变为 0
-        # [修复] FP16安全：-1e9会溢出，改用-1e4
         scores = scores.masked_fill(mask == 0, -1e4)
         
         # 3. 归一化权重
@@ -148,7 +147,12 @@ class MaskedGAT(nn.Module):
         # [B, N, D] = [B, N, N] @ [B, N, D]
         out = torch.matmul(attn_weights, h)
         
-        # 5. 零初始化投影 (保证初始输出为 0)
+        # 【修复1】Degree Scaling：找回"人多力量大"
+        # 计算每个节点的邻居数量（度）
+        degree = mask.sum(dim=-1, keepdim=True).clamp(min=1.0)  # [B, N, 1]
+        out = out * degree  # 幅度随邻居数量放大！
+        
+        # 5. Small-Init投影
         out = self.out_proj(out)
         return out
 
@@ -284,6 +288,10 @@ class CMTAgent(nn.Module):
             message = dist.rsample()  # 初始 ≈ 0 + 0.006 * noise ≈ 0
         else:
             message = mu
+        
+        # 【修复3】显式残差：强行把h注入message，防止躺平
+        # 保证不管GAT怎么瞎搞，h都在，给GRU最强安全感
+        message = message + h_view
         
         # KL loss
         kl = torch.distributions.kl_divergence(
