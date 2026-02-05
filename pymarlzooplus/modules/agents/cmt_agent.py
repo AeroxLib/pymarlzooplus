@@ -110,29 +110,50 @@ class HybridRouting(nn.Module):
 
 
 # ==========================================
-# 3. Masked GAT (with Zero-Initialized Output)
+# 3. Masked GAT (修复版：真正的注意力机制)
 # ==========================================
 class MaskedGAT(nn.Module):
     def __init__(self, hidden_dim):
         super(MaskedGAT, self).__init__()
-        self.head = nn.Linear(hidden_dim, hidden_dim)
+        # 用于计算 Query 和 Key
+        self.W_q = nn.Linear(hidden_dim, hidden_dim)
+        self.W_k = nn.Linear(hidden_dim, hidden_dim)
         
-        # 【关键】零初始化的输出投影层
-        # 这样初始时 GAT 输出 ≈ 0，残差连接等价于纯 GRU
-        # 避免 50 万步的"抗噪期"
+        # 零初始化的输出投影层
         self.out_proj = nn.Linear(hidden_dim, hidden_dim)
         nn.init.zeros_(self.out_proj.weight)
         nn.init.zeros_(self.out_proj.bias)
 
     def forward(self, h, mask):
-        weights = F.softmax(self.head(h), dim=-1)
-        out = torch.matmul(mask, h)
-        out = self.out_proj(out)  # 零初始化投影
+        """
+        h: [B, N, D]
+        mask: [B, N, N] (来自 Routing 的 0/1 矩阵)
+        """
+        # 1. 计算 Attention Scores
+        Q = self.W_q(h)  # [B, N, D]
+        K = self.W_k(h)  # [B, N, D]
+        
+        # [B, N, N] = [B, N, D] @ [B, D, N]
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / (h.size(-1) ** 0.5)
+        
+        # 2. 应用 Mask (只关注 Routing 选择的邻居)
+        # mask 为 0 的地方填负无穷，softmax 后变为 0
+        scores = scores.masked_fill(mask == 0, -1e9)
+        
+        # 3. 归一化权重
+        attn_weights = F.softmax(scores, dim=-1)  # [B, N, N]
+        
+        # 4. 加权聚合
+        # [B, N, D] = [B, N, N] @ [B, N, D]
+        out = torch.matmul(attn_weights, h)
+        
+        # 5. 零初始化投影 (保证初始输出为 0)
+        out = self.out_proj(out)
         return out
 
 
 # ==========================================
-# 4. CMT Agent (with integrated MOA)
+# 4. CMT Agent (修复版：MAGI 零初始化)
 # ==========================================
 class CMTAgent(nn.Module):
     def __init__(self, input_shape, args):
@@ -156,6 +177,18 @@ class CMTAgent(nn.Module):
         # 3. MAGI (Information Bottleneck)
         self.ib_mu = nn.Linear(args.hidden_dim, args.hidden_dim)
         self.ib_std = nn.Linear(args.hidden_dim, args.hidden_dim)
+        
+        # 【关键修复】MAGI 零初始化
+        # 确保输入为 0 (来自GAT) 时，输出的 message 也严格为 0
+        
+        # 1. 均值初始化为 0
+        nn.init.zeros_(self.ib_mu.weight)
+        nn.init.zeros_(self.ib_mu.bias)
+        
+        # 2. 标准差初始化为极小值 (log_std = -5 -> std ≈ 0.006)
+        # 这样 rsample() 出来的噪声也接近 0
+        nn.init.constant_(self.ib_std.weight, 0)
+        nn.init.constant_(self.ib_std.bias, -5.0)
         
         # [新增] MOA网络集成到Agent内部
         self.moa = MOANet(args.hidden_dim, args.n_agents, args.n_actions)
@@ -236,26 +269,25 @@ class CMTAgent(nn.Module):
         # ====================
         # Routing & Communication (使用原始h，带梯度)
         # ====================
-        # Routing & Communication (使用原始h，带梯度)
-        # ====================
         mask, z = self.routing(h_view, training=training)
-        comm_feat = self.comm(h_view, mask)  # [B, N, D]
+        comm_feat = self.comm(h_view, mask)  # [B, N, D], 初始 ≈ 0
         
-        # MAGI信息瓶颈 (必须先压缩，不能偷懒！)
-        mu = self.ib_mu(comm_feat)
+        # MAGI 信息瓶颈
+        mu = self.ib_mu(comm_feat)  # 初始 ≈ 0 (因为 input=0 且 weight/bias=0)
+        
+        # std 计算：softplus(-5) ≈ 0.006
         std = F.softplus(self.ib_std(comm_feat)) + 1e-6
         dist = torch.distributions.Normal(mu, std)
         
         if training:
-            message = dist.rsample()
+            message = dist.rsample()  # 初始 ≈ 0 + 0.006 * noise ≈ 0
         else:
             message = mu
         
-        # [方案B] MAGI后加残差 + 零初始化
-        # 关键：GAT必须先学会压缩有效信息，不能靠输出0偷懒
-        # 初始时 message≈0，+ h_view 等价于纯GRU，快速起步
-        # 后期 message 学习通信信息，与 h_view 融合，爆发力更强
-        message = message + h_view  # 残差在MAGI后！
+        # 残差连接
+        # 初始状态：0 + h_view = h_view (纯 GRU) -> 完美起步！
+        # 训练后期：Message + h_view -> 爆发！
+        message = message + h_view
         
         # KL loss
         kl = torch.distributions.kl_divergence(
