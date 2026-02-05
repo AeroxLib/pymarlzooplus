@@ -10,6 +10,23 @@ import torch.nn.functional as F
 
 
 # ==========================================
+# 0. AddNorm (借鉴TGCNet)
+# ==========================================
+class AddNorm(nn.Module):
+    """LayerNorm + Residual，稳定训练"""
+    def __init__(self, normalized_shape, dropout=0.0):
+        super(AddNorm, self).__init__()
+        self.ln = nn.LayerNorm(normalized_shape)
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else None
+
+    def forward(self, x, y):
+        """x: 原始输入, y: 变换后的输出"""
+        if self.dropout:
+            y = self.dropout(y)
+        return self.ln(x + y)  # Residual + LayerNorm
+
+
+# ==========================================
 # 1. MOA Network (Model of Other Agents)
 # ==========================================
 class MOANet(nn.Module):
@@ -71,17 +88,23 @@ class HybridRouting(nn.Module):
         # h: [Batch, N_Agents, Dim]
         batch_size = h.shape[0]
         
-        # 1. Hard-Concrete采样
+        # 1. Hard-Concrete采样 + 【借鉴TGCNet】STE硬采样
+        # 计算连续值（用于反向传播）
+        u = torch.rand_like(self.log_alpha)
+        eps = 1e-8
+        u = torch.clamp(u, eps, 1 - eps)
+        log_u = torch.log(u + eps) - torch.log(1 - u + eps)
+        s = torch.sigmoid((log_u + self.log_alpha) / self.temp)
+        s_bar = s * (self.zeta - self.gamma) + self.gamma
+        z_continuous = torch.clamp(s_bar, 0, 1)
+        
+        # 【STE】前向传播用硬离散值，反向传播用连续值
         if training:
-            u = torch.rand_like(self.log_alpha)
-            # [优化2] NaN保护：clamp确保数值稳定 + 额外epsilon（防止FP16溢出）
-            eps = 1e-8
-            u = torch.clamp(u, eps, 1 - eps)
-            log_u = torch.log(u + eps) - torch.log(1 - u + eps)
-            s = torch.sigmoid((log_u + self.log_alpha) / self.temp)
-            s_bar = s * (self.zeta - self.gamma) + self.gamma
-            z = torch.clamp(s_bar, 0, 1)
+            # 训练时：前向用硬阈值(0/1)，反向用连续值
+            z_hard = (z_continuous > 0.5).float()
+            z = z_hard - z_continuous.detach() + z_continuous  # STE技巧！
         else:
+            # 测试时：直接硬阈值
             z = (self.log_alpha > 0).float()
             
         z_batch = z.unsqueeze(0).expand(batch_size, -1, -1)
