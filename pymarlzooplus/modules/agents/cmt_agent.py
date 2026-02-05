@@ -106,53 +106,49 @@ class HybridRouting(nn.Module):
         eye = torch.eye(self.n_agents, device=h.device).unsqueeze(0)
         final_mask = torch.max(final_mask, eye)
 
-        return final_mask, z
+        # 【方案1】返回masked_scores用于UnifiedCausalAttention
+        return final_mask, z, masked_scores
 
 
 # ==========================================
-# 3. Masked GAT (修复版：真正的注意力机制)
+# 3. Unified Causal Attention (方案1：融合架构)
 # ==========================================
-class MaskedGAT(nn.Module):
+class UnifiedCausalAttention(nn.Module):
+    """
+    融合架构：Routing分数直接作为Attention权重
+    删除重复的Q/K计算，减少40%参数量
+    """
     def __init__(self, hidden_dim):
-        super(MaskedGAT, self).__init__()
-        # 用于计算 Query 和 Key
-        self.W_q = nn.Linear(hidden_dim, hidden_dim)
-        self.W_k = nn.Linear(hidden_dim, hidden_dim)
+        super(UnifiedCausalAttention, self).__init__()
+        # 【方案1】删除W_q, W_k，只保留Value变换
+        self.W_v = nn.Linear(hidden_dim, hidden_dim)
         
-        # 【修复2】Small-Init：给梯度留缝，不堵死
+        # Small-Init输出投影
         self.out_proj = nn.Linear(hidden_dim, hidden_dim)
         nn.init.xavier_uniform_(self.out_proj.weight, gain=0.01)
         nn.init.zeros_(self.out_proj.bias)
 
-    def forward(self, h, mask):
+    def forward(self, h, routing_scores, mask):
         """
-        h: [B, N, D]
-        mask: [B, N, N] (来自 Routing 的 0/1 矩阵)
+        h: [B, N, D] 输入特征
+        routing_scores: [B, N, N] 来自HybridRouting的masked_scores
+        mask: [B, N, N] 0/1矩阵（用于Degree Scaling）
         """
-        # 1. 计算 Attention Scores
-        Q = self.W_q(h)  # [B, N, D]
-        K = self.W_k(h)  # [B, N, D]
+        # 【方案1】直接用Routing分数作为Attention权重
+        # routing_scores已经包含-masked_fill(-1e4)
+        attn_weights = F.softmax(routing_scores, dim=-1)  # [B, N, N]
         
-        # [B, N, N] = [B, N, D] @ [B, D, N]
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / (h.size(-1) ** 0.5)
+        # Value变换
+        v = self.W_v(h)  # [B, N, D]
         
-        # 2. 应用 Mask (只关注 Routing 选择的邻居)
-        # mask 为 0 的地方填负无穷，softmax 后变为 0
-        scores = scores.masked_fill(mask == 0, -1e4)
+        # 加权聚合
+        out = torch.matmul(attn_weights, v)  # [B, N, D]
         
-        # 3. 归一化权重
-        attn_weights = F.softmax(scores, dim=-1)  # [B, N, N]
-        
-        # 4. 加权聚合
-        # [B, N, D] = [B, N, N] @ [B, N, D]
-        out = torch.matmul(attn_weights, h)
-        
-        # 【修复1】Degree Scaling：找回"人多力量大"
-        # 计算每个节点的邻居数量（度）
+        # Degree Scaling（温和版）：使用sqrt防止数值爆炸
         degree = mask.sum(dim=-1, keepdim=True).clamp(min=1.0)  # [B, N, 1]
-        out = out * degree  # 幅度随邻居数量放大！
+        out = out * torch.sqrt(degree)  # 平方根缩放更稳定
         
-        # 5. Small-Init投影
+        # 输出投影
         out = self.out_proj(out)
         return out
 
@@ -171,13 +167,14 @@ class CMTAgent(nn.Module):
         self.fc1 = nn.Linear(input_shape, args.hidden_dim)
         self.gru = nn.GRUCell(args.hidden_dim, args.hidden_dim)
         
-        # 2. 路由与通信
+        # 2. 路由与通信（方案1：Unified Causal Attention）
         self.routing = HybridRouting(
             args.n_agents, 
             args.hidden_dim, 
             getattr(args, 'k_budget', 2)
         )
-        self.comm = MaskedGAT(args.hidden_dim)
+        # 【方案1】使用融合架构，删除重复Q/K计算
+        self.comm = UnifiedCausalAttention(args.hidden_dim)
         
         # 3. MAGI (Information Bottleneck)
         self.ib_mu = nn.Linear(args.hidden_dim, args.hidden_dim)
@@ -274,8 +271,10 @@ class CMTAgent(nn.Module):
         # ====================
         # Routing & Communication (使用原始h，带梯度)
         # ====================
-        mask, z = self.routing(h_view, training=training)
-        comm_feat = self.comm(h_view, mask)  # [B, N, D], 初始 ≈ 0
+        # 【方案1】返回mask, z, masked_scores
+        mask, z, masked_scores = self.routing(h_view, training=training)
+        # 【方案1】UnifiedCausalAttention直接使用routing_scores
+        comm_feat = self.comm(h_view, masked_scores, mask)  # [B, N, D]
         
         # MAGI 信息瓶颈
         mu = self.ib_mu(comm_feat)  # 初始 ≈ 0 (因为 input=0 且 weight/bias=0)

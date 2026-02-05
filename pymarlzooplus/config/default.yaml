@@ -36,7 +36,7 @@ buffer_size: 32 # Size of the replay buffer
 lr: 0.0005 # Learning rate for agents
 optim_alpha: 0.99 # RMSProp alpha
 optim_eps: 0.00001 # RMSProp epsilon
-grad_norm_clip: 10 # Reduce magnitude of gradients above this L2 norm
+grad_norm_clip: 5 # Reduce magnitude of gradients above this L2 norm
 add_value_last_step: True
 num_circle: 1 # Number of training iterations after each episode
 prioritized_buffer: False

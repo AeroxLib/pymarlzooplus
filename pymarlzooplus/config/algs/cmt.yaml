@@ -60,3 +60,4 @@ beta: 0.0                       # 关闭 KL loss
 l0_weight: 0.0                  # 关闭稀疏 loss
 
 name: "cmt"
+batch_size_run: 4
