@@ -63,6 +63,13 @@ def import_error_pt_sisl():
     )
 
 
+def import_error_magent2():
+    raise ImportError(
+        "magent2 is not installed! "
+        "\nInstall it running: \npip install magent2"
+    )
+
+
 def pettingzoo_make(env_name, kwargs):
 
     #### Butterfly environments ####
@@ -795,6 +802,53 @@ def pettingzoo_make(env_name, kwargs):
 
         except ImportError:
             import_error_pt_sisl()
+
+    #### MAgent2 environments ####
+
+    elif env_name == "magent2:battle_v4":
+
+        try:
+            from magent2.environments import battle_v4
+            return battle_v4.parallel_env(**kwargs)
+
+        except ImportError:
+            import_error_magent2()
+
+    elif env_name == "magent2:battlefield_v5":
+
+        try:
+            from magent2.environments import battlefield_v5
+            return battlefield_v5.parallel_env(**kwargs)
+
+        except ImportError:
+            import_error_magent2()
+
+    elif env_name == "magent2:combined_arms_v6":
+
+        try:
+            from magent2.environments import combined_arms_v6
+            return combined_arms_v6.parallel_env(**kwargs)
+
+        except ImportError:
+            import_error_magent2()
+
+    elif env_name == "magent2:gather_v5":
+
+        try:
+            from magent2.environments import gather_v5
+            return gather_v5.parallel_env(**kwargs)
+
+        except ImportError:
+            import_error_magent2()
+
+    elif env_name == "magent2:tiger_deer_v4":
+
+        try:
+            from magent2.environments import tiger_deer_v4
+            return tiger_deer_v4.parallel_env(**kwargs)
+
+        except ImportError:
+            import_error_magent2()
 
     else:
         raise ValueError(f"Environment '{env_name}' is not supported.")

@@ -162,7 +162,13 @@ class TimeLimitPZ(object):
 
     def reset(self, seed=None, options=None):
         self._elapsed_steps = 0
-        return self.env.reset(seed=seed, options=options)
+        result = self.env.reset(seed=seed, options=options)
+        # Handle different return formats from different environments
+        if isinstance(result, tuple):
+            return result  # (obs, info) format
+        else:
+            # Some environments like magent2 only return observations
+            return result, {}
 
     def close(self):
         return self.env.close()
@@ -596,9 +602,11 @@ class _PettingZooWrapper(MultiAgentEnv):
         return self._agent_prefix
 
     def get_print_info(self):
-        # Get print info from image encoder
-        print_info = self._env.print_info
-        self._env.print_info = None
+        # Get print info from image encoder (only for image-based environments)
+        print_info = None
+        if hasattr(self._env, 'print_info'):
+            print_info = self._env.print_info
+            self._env.print_info = None
 
         # Get print info from the current class
         if self.internal_print_info is not None:
@@ -664,15 +672,57 @@ class _PettingZooWrapper(MultiAgentEnv):
             # Handle the timelimit truncation
             timelimit_truncated = self._info['TimeLimit.truncated']
             del self._info['TimeLimit.truncated']
-            return (
-                rewards,
-                terminations,
-                {'truncations': truncations, 'infos': self._info, 'TimeLimit.truncated': timelimit_truncated}
-            )
+            
+            # 对于 magent2 环境，将字典奖励转换为标量奖励（总和）
+            # 并将 terminations 字典转换为布尔值
+            if self.key.startswith("magent2"):
+                total_reward = float(sum(rewards.values()))
+                # 检查是否有任何智能体终止（死亡或回合结束）
+                done = any(terminations.values())
+                return total_reward, done, {}
+            else:
+                return (
+                    rewards,
+                    terminations,
+                    {'truncations': truncations, 'infos': self._info, 'TimeLimit.truncated': timelimit_truncated}
+                )
 
     def get_obs(self):
-        """ Returns all agent observations """
-        return self._obs
+        """
+        Returns all agent observations.
+        关键修复：处理死亡智能体，用全0填充，防止 ragged array 错误。
+        """
+        # 如果是图像观测，直接返回（图像环境通常没有agent death问题）
+        if self._is_image:
+            return self._obs
+        
+        # 获取观测形状 - 用于创建全0填充
+        # 从第一个存活的智能体获取形状，或从observation_space推断
+        if self._common_observation_space:
+            # 所有智能体观测空间相同
+            obs_shape = self.observation_space.shape
+        else:
+            # 从原始环境获取第一个智能体的观测形状
+            obs_shape = self.original_env.observation_space(self._agent_prefix[0]).shape
+        
+        # 构建固定长度的观测列表
+        obs_list = []
+        for agent_prefix in self._agent_prefix:
+            if agent_prefix in self._obs:
+                # 智能体存活，获取其观测
+                obs = np.array(self._obs[agent_prefix], dtype=np.float32)
+            else:
+                # 智能体已死亡或未出现：用全0填充
+                obs = np.zeros(obs_shape, dtype=np.float32)
+            
+            # --- 关键修复：Flatten ---
+            # 无论你是图像还是向量，PyMARL 的 buffer 默认都当成 1D 向量存
+            obs = obs.flatten() 
+            # -----------------------
+            
+            obs_list.append(obs)
+        
+        return obs_list
 
     def get_obs_agent(self, agent_id):
         """ Returns observation for agent_id """
@@ -689,21 +739,22 @@ class _PettingZooWrapper(MultiAgentEnv):
             ), f"'self.observation_space': {self.observation_space}, 'self.trainable_cnn': {self.trainable_cnn}"
             return self.observation_space[0] if self.trainable_cnn is False else self.observation_space
 
-        # Vector observations
+        # Vector observations (including multi-dimensional like magent2's grid observations)
         else:
             if self._common_observation_space is False:
-                return self.observation_space
+                # For environments with different observation spaces per agent
+                # Return the maximum observation size (product of all dimensions) among all agents
+                max_obs_size = 0
+                for agent_id in range(self.n_agents):
+                    agent_obs_space = self.original_env.observation_space(self._agent_prefix[agent_id])
+                    # Calculate total size by multiplying all dimensions (e.g., 13*13*5 for magent2)
+                    obs_size = int(np.prod(agent_obs_space.shape))
+                    max_obs_size = max(max_obs_size, obs_size)
+                return max_obs_size
             else:
-                if (
-                        (isinstance(self._obs, tuple) and len(self._obs) == 2) or
-                        (isinstance(self._obs, dict) and len(self._obs) == self.n_agents)
-                ):
-                    if isinstance(self._obs, tuple):
-                        assert all([self._obs[1][_agent_prefix] == {} for _agent_prefix in self._agent_prefix]), \
-                            f"self._obs: {self._obs}"
-                    return self.observation_space.shape
-                else:
-                    raise NotImplementedError
+                # All agents have the same observation space
+                # Return product of all dimensions (e.g., 13*13*5 for magent2 grid observation)
+                return int(np.prod(self.observation_space.shape))
 
     def get_state(self):
 
@@ -730,12 +781,17 @@ class _PettingZooWrapper(MultiAgentEnv):
             else:
                 raise NotImplementedError()
 
-        # Vector observations (only for non-fully cooperative tasks)
+        # Vector observations (including multi-dimensional like magent2's grid observations)
         else:
             if self._common_observation_space is False:
                 assert isinstance(self._obs, dict)
-                _obs = [self._obs[_agent_prefix] for _agent_prefix in self._agent_prefix]
-                _obs = np.concatenate(_obs, axis=0).astype(np.float32)
+                # Flatten each agent's multi-dimensional observation before concatenating
+                # Use list comprehension with explicit float32 conversion to avoid object arrays
+                _obs_list = []
+                for _agent_prefix in self._agent_prefix:
+                    agent_obs = np.array(self._obs[_agent_prefix], dtype=np.float32).flatten()
+                    _obs_list.append(agent_obs)
+                _obs = np.concatenate(_obs_list, axis=0)
                 return _obs
             else:
                 if (
@@ -746,8 +802,14 @@ class _PettingZooWrapper(MultiAgentEnv):
                         assert all([self._obs[1][_agent_prefix] == {} for _agent_prefix in self._agent_prefix]), \
                             f"self._obs: {self._obs}"
                         self._obs = self._obs[0]
-                    _obs = [self._obs[_agent_prefix] for _agent_prefix in self._agent_prefix]
-                    return np.stack(_obs, axis=0).astype(np.float32)
+                    # Flatten each agent's multi-dimensional observation before stacking
+                    # Use explicit float32 conversion to avoid object arrays
+                    _obs_list = []
+                    for _agent_prefix in self._agent_prefix:
+                        agent_obs = np.array(self._obs[_agent_prefix], dtype=np.float32).flatten()
+                        _obs_list.append(agent_obs)
+                    _obs = np.concatenate(_obs_list, axis=0)
+                    return _obs
                 else:
                     raise NotImplementedError
 
@@ -764,47 +826,55 @@ class _PettingZooWrapper(MultiAgentEnv):
                                                              else \
                    (self.n_agents, *self.observation_space)
 
-        # Vector observations
+        # Vector observations (including multi-dimensional like magent2's grid observations)
         else:
             if self._common_observation_space is False:
-                raise NotImplementedError
+                # For environments where agents have different observation spaces
+                # Calculate state size as sum of all agents' observation sizes (product of all dims)
+                total_state_size = 0
+                for agent_id in range(self.n_agents):
+                    agent_obs_space = self.original_env.observation_space(self._agent_prefix[agent_id])
+                    # Calculate total size by multiplying all dimensions (e.g., 13*13*5 for magent2)
+                    total_state_size += int(np.prod(agent_obs_space.shape))
+                return total_state_size
             else:
-                if (
-                        (isinstance(self._obs, tuple) and len(self._obs) == 2) or
-                        (isinstance(self._obs, dict) and len(self._obs) == self.n_agents)
-                ):
-                    if isinstance(self._obs, tuple):
-                        assert all([self._obs[1][_agent_prefix] == {} for _agent_prefix in self._agent_prefix]), \
-                            f"self._obs: {self._obs}"
-                    return tuple((self.n_agents, *self.observation_space.shape))
-                else:
-                    raise NotImplementedError
+                # All agents have the same observation space
+                # State is concatenation of all agent observations
+                # Use product of all dimensions (e.g., 13*13*5 for magent2 grid observation)
+                return int(self.n_agents * np.prod(self.observation_space.shape))
 
     def get_avail_actions(self):
-
-        if isinstance(self.action_space, int):
-            avail_actions = []
-            for agent_id in range(self.n_agents):
-                avail_agent = self.get_avail_agent_actions(self._agent_prefix[agent_id])
-                avail_actions.append(avail_agent)
-
-            return avail_actions
-        else:
-            raise NotImplementedError
+        """ Returns the available actions for all agents """
+        avail_actions = []
+        for agent_id in range(self.n_agents):
+            avail_agent = self.get_avail_agent_actions(self._agent_prefix[agent_id])
+            avail_actions.append(avail_agent)
+        return avail_actions
 
     def get_avail_agent_actions(self, agent_id):
         """ Returns the available actions for agent_id """
-        if isinstance(self.action_space, int):
-            return self._env.action_space(agent_id).n * [1]  # 1 indicates availability of actions
+        # Check if this is a magent2 environment (no action masking needed)
+        if self.key.startswith("magent2"):
+            # For magent2, all actions are always available
+            agent_action_space = self._env.action_space(agent_id)
+            return agent_action_space.n * [1]
         else:
-            raise NotImplementedError
+            # For other environments, use original logic
+            if isinstance(self.action_space, int):
+                return self._env.action_space(agent_id).n * [1]
+            else:
+                # This shouldn't happen for non-magent2 envs, but handle gracefully
+                agent_action_space = self._env.action_space(agent_id)
+                return agent_action_space.n * [1]
 
     def get_total_actions(self):
         """ Returns the total number of actions an agent could ever take """
         if isinstance(self.action_space, int):
             return self.action_space
         else:
-            raise NotImplementedError
+            # For environments like magent2 where action_space is a gym Space object
+            # Get the number of actions from the action space
+            return self.action_space.n
 
     def sample_actions(self):
         """ Returns a random sample of actions """
