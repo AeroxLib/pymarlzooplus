@@ -279,11 +279,11 @@ class CMTAgent(nn.Module):
         # MOA: 基于截断的特征预测队友动作
         # ====================
         if training and actions is not None and next_actions is not None:
-            # 关键：使用detach()截断梯度！
-            h_detached = h.detach()  # [B*N, hidden_dim] - 梯度不回流
+            # 【CMT_Causal_Sparse】去掉detach()，允许MOA梯度回流到GRU
+            # 因果引导：MOA Loss指导Encoder学习队友意图特征
             
-            # MOA预测
-            moa_logits = self.moa(h_detached)  # [B*N, n_agents * n_actions]
+            # MOA预测（梯度可回流）
+            moa_logits = self.moa(h)  # [B*N, n_agents * n_actions]
             moa_logits = moa_logits.view(bs, self.n_agents, self.n_agents, self.n_actions)
             
             # [优化3] 计算MOA loss：预测下一个动作（排除自己）
