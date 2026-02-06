@@ -175,7 +175,7 @@ class CMTLearner:
             # 3. Sparsity Loss (L0正则) - 带warm-up调度
             l0_weight = getattr(self.args, "l0_weight", 0.01)
             # [修复2] Warm-up: 训练初期降低l0_weight，让网络先充分连接
-            warmup_steps = 50000  # 前50000步warmup
+            warmup_steps = 50000  # 旧warmup，将被新课程替代  # 前50000步warmup
             if self.training_steps < warmup_steps:
                 l0_weight = l0_weight * (self.training_steps / warmup_steps)
             loss += l0_weight * (total_sparsity_loss / batch.max_seq_length)
@@ -219,6 +219,11 @@ class CMTLearner:
             self.logger.log_stat("sparsity_loss", (total_sparsity_loss / batch.max_seq_length).item(), t_env)
             self.logger.log_stat("kl_loss", (total_kl_loss / batch.max_seq_length).item(), t_env)
             self.logger.log_stat("grad_norm", grad_norm.item(), t_env)
+            
+            # 【课程退火】记录当前l0权重和拓扑密度
+            self.logger.log_stat("l0_weight_curr", current_l0, t_env)
+            topology_density = 1.0 - (total_sparsity_loss / (batch.max_seq_length * self.n_agents ** 2))
+            self.logger.log_stat("topology_density", topology_density.item(), t_env)
             mask_elems = mask.sum().item()
             self.logger.log_stat("td_error_abs", (masked_td_error.abs().sum().item() / mask_elems), t_env)
             self.logger.log_stat("q_taken_mean", (chosen_action_qvals * mask).sum().item() / (mask_elems * self.args.n_agents), t_env)
