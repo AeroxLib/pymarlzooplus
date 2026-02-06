@@ -172,13 +172,21 @@ class CMTLearner:
             moa_weight = getattr(self.args, "moa_weight", 0.1)
             loss += moa_weight * (total_moa_loss / batch.max_seq_length)
 
-            # 3. Sparsity Loss (L0正则) - 带warm-up调度
-            l0_weight = getattr(self.args, "l0_weight", 0.01)
-            # [修复2] Warm-up: 训练初期降低l0_weight，让网络先充分连接
-            warmup_steps = 50000  # 旧warmup，将被新课程替代  # 前50000步warmup
-            if self.training_steps < warmup_steps:
-                l0_weight = l0_weight * (self.training_steps / warmup_steps)
-            loss += l0_weight * (total_sparsity_loss / batch.max_seq_length)
+            # 3. Sparsity Loss (L0正则) - 课程退火策略
+            l0_weight_max = getattr(self.args, "l0_weight", 0.0001)
+            l0_start = getattr(self.args, "l0_start_step", 100000)
+            l0_anneal = getattr(self.args, "l0_anneal_time", 400000)
+            
+            # 动态计算当前权重
+            if t_env < l0_start:
+                current_l0 = 0.0
+            elif t_env < (l0_start + l0_anneal):
+                progress = (t_env - l0_start) / l0_anneal
+                current_l0 = l0_weight_max * progress
+            else:
+                current_l0 = l0_weight_max
+            
+            loss += current_l0 * (total_sparsity_loss / batch.max_seq_length)
 
             # 4. MAGI KL Loss (信息瓶颈)
             beta = getattr(self.args, "beta", 0.001)
