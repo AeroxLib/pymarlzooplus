@@ -138,11 +138,14 @@ class HybridRouting(nn.Module):
 # ==========================================
 class UnifiedCausalAttention(nn.Module):
     """
-    融合架构：Routing分数直接作为Attention权重
+    融合架构：Routing分数直接作为Attention权重 + LayerNorm + FFN
     删除重复的Q/K计算，减少40%参数量
+    增加TGCNet式的LayerNorm和FFN提升稳定性
     """
     def __init__(self, hidden_dim):
         super(UnifiedCausalAttention, self).__init__()
+        self.hidden_dim = hidden_dim
+        
         # 【方案1】删除W_q, W_k，只保留Value变换
         self.W_v = nn.Linear(hidden_dim, hidden_dim)
         
@@ -150,6 +153,20 @@ class UnifiedCausalAttention(nn.Module):
         self.out_proj = nn.Linear(hidden_dim, hidden_dim)
         nn.init.xavier_uniform_(self.out_proj.weight, gain=0.01)
         nn.init.zeros_(self.out_proj.bias)
+        
+        # 【新增】LayerNorm：稳定梯度，防止爆炸
+        self.layer_norm1 = nn.LayerNorm(hidden_dim)
+        
+        # 【新增】FFN (Feed-Forward Network)：增强表达能力
+        # hidden_dim * 2 膨胀比 (Expansion Ratio)
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim * 2),
+            nn.ReLU(),
+            nn.Linear(hidden_dim * 2, hidden_dim)
+        )
+        
+        # 【新增】第二个LayerNorm
+        self.layer_norm2 = nn.LayerNorm(hidden_dim)
 
     def forward(self, h, routing_scores, mask):
         """
@@ -158,21 +175,29 @@ class UnifiedCausalAttention(nn.Module):
         mask: [B, N, N] 0/1矩阵（用于Degree Scaling）
         """
         # 【方案1】直接用Routing分数作为Attention权重
-        # routing_scores已经包含-masked_fill(-1e4)
         attn_weights = F.softmax(routing_scores, dim=-1)  # [B, N, N]
         
         # Value变换
         v = self.W_v(h)  # [B, N, D]
         
         # 加权聚合
-        out = torch.matmul(attn_weights, v)  # [B, N, D]
+        attn_out = torch.matmul(attn_weights, v)  # [B, N, D]
         
-        # Degree Scaling（温和版）：使用sqrt防止数值爆炸
-        degree = mask.sum(dim=-1, keepdim=True).clamp(min=1.0)  # [B, N, 1]
-        out = out * torch.sqrt(degree)  # 平方根缩放更稳定
+        # Degree Scaling（温和版）
+        degree = mask.sum(dim=-1, keepdim=True).clamp(min=1.0)
+        attn_out = attn_out * torch.sqrt(degree)
         
         # 输出投影
-        out = self.out_proj(out)
+        attn_out = self.out_proj(attn_out)
+        
+        # 【关键改进】Norm(x + Scaling(x))：稳定梯度
+        # SubLayer 1: Attention + Degree Scaling + 投影
+        out = self.layer_norm1(h + attn_out)  # Residual + LayerNorm
+        
+        # 【关键改进】SubLayer 2: FFN (增强表达能力)
+        ffn_out = self.ffn(out)
+        out = self.layer_norm2(out + ffn_out)  # 第二个残差连接
+        
         return out
 
 
