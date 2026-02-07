@@ -325,10 +325,30 @@ class CMTAgent(nn.Module):
         comm_feat = self.comm(h_view, masked_scores, mask)  # [B, N, D]
         
         # MAGI 信息瓶颈
-        mu = self.ib_mu(comm_feat)  # 初始 ≈ 0 (因为 input=0 且 weight/bias=0)
+        mu = self.ib_mu(comm_feat)
         
-        # std 计算：softplus(-5) ≈ 0.006
-        std = F.softplus(self.ib_std(comm_feat)) + 1e-6
+        # 【改进版 NaN保护】
+        if torch.isnan(mu).any() or torch.isinf(mu).any():
+            # 1. 替换 NaN/Inf
+            mu = torch.where(torch.isnan(mu) | torch.isinf(mu), torch.zeros_like(mu), mu)
+            # 2. 【关键】使用 detach() 切断梯度，防止污染权重
+            mu = mu.detach()  # <--- 断臂求生
+        
+        # 3. 【关键】数值钳制 (Clamping)，防止极端值
+        mu = torch.clamp(mu, min=-10.0, max=10.0)
+        
+        # std 计算
+        raw_std = self.ib_std(comm_feat)
+        
+        # 【改进版 std保护】
+        if torch.isnan(raw_std).any() or torch.isinf(raw_std).any():
+            raw_std = torch.where(torch.isnan(raw_std) | torch.isinf(raw_std), torch.zeros_like(raw_std), raw_std)
+            raw_std = raw_std.detach()  # <--- 断臂求生
+        
+        # 限制 std 的输入范围，防止 softplus 溢出
+        raw_std = torch.clamp(raw_std, min=-5.0, max=5.0)
+        std = F.softplus(raw_std) + 1e-6
+        
         dist = torch.distributions.Normal(mu, std)
         
         if training:
