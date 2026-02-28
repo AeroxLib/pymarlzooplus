@@ -13,6 +13,8 @@ from .maven_learner import MavenLearner
 from .commformer_learner import CommFormerLearner
 from .cmt_learner import CMTLearner
 from .tgc_learner import TGCLearner
+from .maic_learner import MAICLearner
+
 
 REGISTRY = {
     "q_learner": QLearner,
@@ -30,4 +32,5 @@ REGISTRY = {
     "commformer_learner": CommFormerLearner,
     "cmt_learner": CMTLearner,
     "tgc_learner": TGCLearner,
+    "maic_learner": MAICLearner,
 }

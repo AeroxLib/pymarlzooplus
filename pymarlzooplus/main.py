@@ -6,6 +6,12 @@ from copy import deepcopy
 import inspect
 import yaml
 
+# Add project root to sys.path to support both module and direct execution
+# This allows: python3 -m pymarlzooplus.main AND python3 pymarlzooplus/main.py
+project_root = dirname(dirname(abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from sacred import Experiment, SETTINGS
 from sacred.observers import FileStorageObserver
 import numpy as np

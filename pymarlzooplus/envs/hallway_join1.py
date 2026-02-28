@@ -69,10 +69,13 @@ class Join1Env(MultiAgentEnv):
         self.last_action = np.zeros((self.n_agents, self.n_actions))
 
         self.episode_limit = max(state_numbers) + 10
-
+        
         # initialize agents
         self.state_n = np.array([np.random.randint(low=1, high=self.n_states[i] + 1) for i in range(self.n_agents)],
                                 dtype=np.int_)
+        
+        # Internal print info for logging
+        self.internal_print_info = f"Hallway Join1 environment: n_agents={self.n_agents}, state_numbers={self.n_states.tolist()}, episode_limit={self.episode_limit}"
 
     def step(self, actions):
         """Returns reward, terminated, info."""
@@ -200,4 +203,7 @@ class Join1Env(MultiAgentEnv):
 
     def get_print_info(self):
         """Return environment info for printing"""
-        return f"Hallway Join1 environment: n_agents={self.n_agents}, state_numbers={self.n_states.tolist()}, episode_limit={self.episode_limit}"
+        print_info = self.internal_print_info
+        # Clear the internal print info to avoid repeated printing
+        self.internal_print_info = None
+        return print_info

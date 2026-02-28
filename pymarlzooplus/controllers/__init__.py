@@ -9,6 +9,7 @@ from .maven_controller import Maven
 from .commformer_controller import CommFormerMAC
 from .tgcnet_controller import TGCNetMAC
 from .cmt_controller import CMTMAC  # <--- CMT Controller
+from .maic_controller import MAICMAC
 
 REGISTRY = {
         "basic_mac": BasicMAC,
@@ -22,4 +23,5 @@ REGISTRY = {
         "commformer_mac": CommFormerMAC,
         "tgcnet_mac": TGCNetMAC,
         "cmt_mac": CMTMAC,  # <--- CMT Controller
+        "maic_mac": MAICMAC,
 }
