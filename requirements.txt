@@ -1,7 +1,7 @@
 # General requirements
 gymnasium
 matplotlib
-numpy
+numpy<2.0.0
 PyYAML
 sacred
 six
@@ -13,6 +13,7 @@ pyglet==1.5.27
 tqdm
 pettingzoo==1.24.3
 rich
+wandb
 
 # For MPE
 seaborn
